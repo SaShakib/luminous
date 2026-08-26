@@ -3,7 +3,8 @@ export const openApiDocument = {
   info: {
     title: "Luminous Order History API",
     version: "1.0.0",
-    description: "Take-home API for reading a user's order history."
+    description:
+      "Take-home API for reading a user's order history. In Swagger, use demo user 00000000-0000-4000-8000-000000000026 with role user and leave query fields empty to see a nextCursor."
   },
   servers: [
     {
@@ -119,7 +120,8 @@ export const openApiDocument = {
     "/api/users/{userId}/orders": {
       get: {
         summary: "List a user's order history",
-        description: "Returns orders newest first by default. The caller must be the same user or an admin.",
+        description:
+          "For the easiest Swagger test, set userId to 00000000-0000-4000-8000-000000000026, authorize with the same x-user-id and x-user-role=user, and leave optional query fields empty. The seeded user has 100 orders, so the default page size should include nextCursor, which can be copied into cursor for the next page.",
         parameters: [
           {
             name: "userId",
@@ -131,6 +133,7 @@ export const openApiDocument = {
           {
             name: "limit",
             in: "query",
+            description: "Optional page size. Leave empty for the default 25.",
             schema: { type: "integer", minimum: 1, maximum: 100, default: 25 }
           },
           {
@@ -166,12 +169,14 @@ export const openApiDocument = {
           {
             name: "productSku",
             in: "query",
-            schema: { type: "string", example: "LUM-PRO" }
+            description: "Optional. Leave empty for the first Swagger test.",
+            schema: { type: "string" }
           },
           {
             name: "search",
             in: "query",
-            schema: { type: "string", example: "Luminous" }
+            description: "Optional. Leave empty for the first Swagger test.",
+            schema: { type: "string" }
           },
           {
             name: "createdFrom",

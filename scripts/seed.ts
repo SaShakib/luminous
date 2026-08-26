@@ -5,7 +5,7 @@ import { OrderItemEntity } from "../src/db/entities/OrderItemEntity";
 import { OrderEntity } from "../src/db/entities/OrderEntity";
 import { UserEntity } from "../src/db/entities/UserEntity";
 
-const USER_COUNT = 5_000;
+const USER_COUNT = 500;
 const ORDER_COUNT = 50_000;
 const USER_BATCH_SIZE = 500;
 const ORDER_BATCH_SIZE = 500;

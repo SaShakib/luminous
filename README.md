@@ -50,10 +50,10 @@ npm run db:seed
 
 The seed creates:
 
-- 5,000 users
+- 500 users
 - 50,000 orders
 - about 125,000 order items
-- orders spread across all 5,000 users
+- orders spread evenly across all 500 users, so each user has 100 orders
 
 ## Run The API
 
@@ -93,6 +93,15 @@ In Swagger UI, click **Authorize** and provide:
 
 - `x-user-id`: the caller's user id
 - `x-user-role`: `user` or `admin`
+
+Fastest Swagger test:
+
+- Use path `userId`: `00000000-0000-4000-8000-000000000026`
+- Authorize with `x-user-id`: `00000000-0000-4000-8000-000000000026`
+- Authorize with `x-user-role`: `user`
+- Leave query fields empty
+
+That user has 100 seeded orders. The default page size is 25, so the first response returns `hasMore: true` and a `nextCursor`. Copy `nextCursor` into the `cursor` query field to test the next page.
 
 For this take-home, these headers simulate an authenticated caller. In a production service they should come from a verified token/session.
 
