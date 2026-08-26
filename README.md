@@ -1,6 +1,6 @@
 # Luminous Order History API
 
-Express + TypeScript take-home project for:
+Express + TypeScript + TypeORM take-home project for:
 
 ```http
 GET /api/users/:userId/orders
@@ -14,7 +14,7 @@ The endpoint returns a user's order history, supports cursor pagination, filteri
 - npm
 - Postgres database
 
-This project is currently configured for the provided Aiven Postgres database through `.env` and `ca.pem`.
+This project is configured for the provided demo Aiven Postgres database through `.env` and `ca.pem`.
 
 ## Install
 
@@ -30,22 +30,9 @@ Create `.env` from the example if it does not already exist:
 cp .env.example .env
 ```
 
-Required values:
+The demo `.env.example` intentionally includes the database credentials so reviewers can run the project without extra setup.
 
-```env
-NODE_ENV=development
-PORT=3000
-CORS_ORIGIN=http://localhost:3000
-
-PGHOST=your-postgres-host
-PGPORT=5432
-PGDATABASE=your-database
-PGUSER=your-user
-PGPASSWORD=your-password
-PG_SSL_CA_PATH=./ca.pem
-```
-
-For Aiven, download the CA certificate as `ca.pem` and keep `PG_SSL_CA_PATH=./ca.pem`.
+The Aiven CA certificate is included as `ca.pem` for this demo.
 
 ## Database Setup
 
@@ -109,53 +96,55 @@ In Swagger UI, click **Authorize** and provide:
 
 For this take-home, these headers simulate an authenticated caller. In a production service they should come from a verified token/session.
 
-## Get Test User IDs
+## Demo User IDs
 
-Use `psql`, Aiven console, or any Postgres client.
+The seed script uses stable user ids, so these work after reseeding:
 
-Find one normal user:
+- Admin user:
+  - `x-user-id`: `00000000-0000-4000-8000-000000000001`
+  - `x-user-role`: `admin`
+- Normal user:
+  - `x-user-id`: `00000000-0000-4000-8000-000000000026`
+  - `x-user-role`: `user`
+- Different normal user for forbidden checks:
+  - `x-user-id`: `00000000-0000-4000-8000-000000000027`
+  - `x-user-role`: `user`
+
+You can also query the database manually:
 
 ```sql
 SELECT id, email, role
 FROM users
-WHERE role = 'user'
-LIMIT 1;
-```
-
-Find one admin:
-
-```sql
-SELECT id, email, role
-FROM users
-WHERE role = 'admin'
-LIMIT 1;
+WHERE id IN (
+  '00000000-0000-4000-8000-000000000001',
+  '00000000-0000-4000-8000-000000000026',
+  '00000000-0000-4000-8000-000000000027'
+);
 ```
 
 ## Send Requests
 
-Replace the ids below with ids from your database.
-
 User reading their own orders:
 
 ```bash
-curl "http://localhost:3000/api/users/<USER_ID>/orders?limit=5" \
-  -H "x-user-id: <USER_ID>" \
+curl "http://localhost:3000/api/users/00000000-0000-4000-8000-000000000026/orders?limit=5" \
+  -H "x-user-id: 00000000-0000-4000-8000-000000000026" \
   -H "x-user-role: user"
 ```
 
 Admin reading another user's orders:
 
 ```bash
-curl "http://localhost:3000/api/users/<USER_ID>/orders?limit=5" \
-  -H "x-user-id: <ADMIN_ID>" \
+curl "http://localhost:3000/api/users/00000000-0000-4000-8000-000000000026/orders?limit=5" \
+  -H "x-user-id: 00000000-0000-4000-8000-000000000001" \
   -H "x-user-role: admin"
 ```
 
 Forbidden request example:
 
 ```bash
-curl "http://localhost:3000/api/users/<USER_ID>/orders" \
-  -H "x-user-id: <DIFFERENT_USER_ID>" \
+curl "http://localhost:3000/api/users/00000000-0000-4000-8000-000000000026/orders" \
+  -H "x-user-id: 00000000-0000-4000-8000-000000000027" \
   -H "x-user-role: user"
 ```
 
@@ -182,48 +171,48 @@ Expected result: `403 Forbidden`.
 Newest orders:
 
 ```bash
-curl "http://localhost:3000/api/users/<USER_ID>/orders?limit=10" \
-  -H "x-user-id: <USER_ID>" \
+curl "http://localhost:3000/api/users/00000000-0000-4000-8000-000000000026/orders?limit=10" \
+  -H "x-user-id: 00000000-0000-4000-8000-000000000026" \
   -H "x-user-role: user"
 ```
 
 Next page:
 
 ```bash
-curl "http://localhost:3000/api/users/<USER_ID>/orders?limit=10&cursor=<NEXT_CURSOR>" \
-  -H "x-user-id: <USER_ID>" \
+curl "http://localhost:3000/api/users/00000000-0000-4000-8000-000000000026/orders?limit=10&cursor=<NEXT_CURSOR>" \
+  -H "x-user-id: 00000000-0000-4000-8000-000000000026" \
   -H "x-user-role: user"
 ```
 
 Filter by payment status:
 
 ```bash
-curl "http://localhost:3000/api/users/<USER_ID>/orders?paymentStatus=paid&limit=10" \
-  -H "x-user-id: <USER_ID>" \
+curl "http://localhost:3000/api/users/00000000-0000-4000-8000-000000000026/orders?paymentStatus=paid&limit=10" \
+  -H "x-user-id: 00000000-0000-4000-8000-000000000026" \
   -H "x-user-role: user"
 ```
 
 Search by product/order text:
 
 ```bash
-curl "http://localhost:3000/api/users/<USER_ID>/orders?search=Luminous&limit=10" \
-  -H "x-user-id: <USER_ID>" \
+curl "http://localhost:3000/api/users/00000000-0000-4000-8000-000000000026/orders?search=Luminous&limit=10" \
+  -H "x-user-id: 00000000-0000-4000-8000-000000000026" \
   -H "x-user-role: user"
 ```
 
 Sort by highest total:
 
 ```bash
-curl "http://localhost:3000/api/users/<USER_ID>/orders?sortBy=total&sortDirection=desc&limit=10" \
-  -H "x-user-id: <USER_ID>" \
+curl "http://localhost:3000/api/users/00000000-0000-4000-8000-000000000026/orders?sortBy=total&sortDirection=desc&limit=10" \
+  -H "x-user-id: 00000000-0000-4000-8000-000000000026" \
   -H "x-user-role: user"
 ```
 
 Combine filters, search, and sorting:
 
 ```bash
-curl "http://localhost:3000/api/users/<USER_ID>/orders?paymentStatus=paid&fulfillmentStatus=shipped&productSku=LUM-PRO&search=Luminous&sortBy=total&sortDirection=desc&limit=10" \
-  -H "x-user-id: <ADMIN_ID>" \
+curl "http://localhost:3000/api/users/00000000-0000-4000-8000-000000000026/orders?paymentStatus=paid&fulfillmentStatus=shipped&productSku=LUM-PRO&search=Luminous&sortBy=total&sortDirection=desc&limit=10" \
+  -H "x-user-id: 00000000-0000-4000-8000-000000000001" \
   -H "x-user-role: admin"
 ```
 
@@ -282,5 +271,6 @@ npm run build
 ## Notes
 
 - `DECISIONS.md` explains assumptions, AI usage, scaling risks, and deliberate omissions.
-- `.env` and `ca.pem` are ignored by git and should not be committed.
-- The repository layer keeps SQL isolated so a different database or backing service can be introduced later with less churn.
+- `.env.example` includes demo credentials intentionally for this take-home. Do not copy this pattern for production systems.
+- TypeORM entities model the database tables, the seed uses TypeORM repositories, and the order-history read path uses TypeORM QueryBuilder.
+- The repository layer keeps database access isolated so a different database or backing service can be introduced later with less churn.

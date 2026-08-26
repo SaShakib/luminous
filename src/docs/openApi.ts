@@ -16,12 +16,14 @@ export const openApiDocument = {
       userIdHeader: {
         type: "apiKey",
         in: "header",
-        name: "x-user-id"
+        name: "x-user-id",
+        description: "Demo user id. Try normal user 00000000-0000-4000-8000-000000000026 or admin 00000000-0000-4000-8000-000000000001."
       },
       userRoleHeader: {
         type: "apiKey",
         in: "header",
-        name: "x-user-role"
+        name: "x-user-role",
+        description: "Use user for the normal demo user, or admin for the demo admin."
       }
     },
     schemas: {
@@ -123,7 +125,8 @@ export const openApiDocument = {
             name: "userId",
             in: "path",
             required: true,
-            schema: { type: "string", format: "uuid" }
+            schema: { type: "string", format: "uuid" },
+            example: "00000000-0000-4000-8000-000000000026"
           },
           {
             name: "limit",

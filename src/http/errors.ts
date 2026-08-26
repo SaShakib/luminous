@@ -9,11 +9,11 @@ export class HttpError extends Error {
   }
 }
 
-export function notFoundHandler(_request: Request, _response: Response, next: NextFunction): void {
+export function globalNotFoundResolver(_request: Request, _response: Response, next: NextFunction): void {
   next(new HttpError(404, "Route not found"));
 }
 
-export function errorHandler(error: unknown, _request: Request, response: Response, _next: NextFunction): void {
+export function globalErrorResolver(error: unknown, _request: Request, response: Response, _next: NextFunction): void {
   if (error instanceof HttpError) {
     response.status(error.statusCode).json({ error: { message: error.message } });
     return;

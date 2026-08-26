@@ -1,5 +1,9 @@
-import { PoolClient } from "pg";
-import { pool } from "../src/db/pool";
+import { randomUUID } from "node:crypto";
+import { EntityManager } from "typeorm";
+import { initializeDataSource } from "../src/db/dataSource";
+import { OrderItemEntity } from "../src/db/entities/OrderItemEntity";
+import { OrderEntity } from "../src/db/entities/OrderEntity";
+import { UserEntity } from "../src/db/entities/UserEntity";
 
 const USER_COUNT = 5_000;
 const ORDER_COUNT = 50_000;
@@ -31,18 +35,12 @@ interface SeedUser {
   lastName: string;
 }
 
-interface ItemSeed {
-  orderNumber: string;
-  position: number;
-  productSku: string;
-  productName: string;
-  quantity: number;
-  unitPriceCents: number;
-  totalPriceCents: number;
-}
-
 function pick<T>(values: readonly T[], index: number): T {
   return values[index % values.length];
+}
+
+function makeUserId(index: number): string {
+  return `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`;
 }
 
 function makeAddress(index: number) {
@@ -56,56 +54,63 @@ function makeAddress(index: number) {
   };
 }
 
-async function seedUsers(client: PoolClient): Promise<SeedUser[]> {
+async function seedUsers(manager: EntityManager): Promise<SeedUser[]> {
   const users: SeedUser[] = [];
+  const repository = manager.getRepository(UserEntity);
 
   for (let start = 0; start < USER_COUNT; start += USER_BATCH_SIZE) {
-    const rows = Array.from({ length: Math.min(USER_BATCH_SIZE, USER_COUNT - start) }, (_, offset) => {
+    const batch = Array.from({ length: Math.min(USER_BATCH_SIZE, USER_COUNT - start) }, (_, offset) => {
       const index = start + offset + 1;
       const firstName = pick(firstNames, index);
       const lastName = pick(lastNames, index + 3);
       const email = `${firstName}.${lastName}.${index}@example.com`.toLowerCase();
-      const role = index <= 25 ? "admin" : "user";
-      const phone = `+1555${String(index).padStart(7, "0")}`;
-      const lastLoginAt = new Date(Date.now() - (index % 365) * 86_400_000).toISOString();
 
-      return [email, role, firstName, lastName, phone, "active", lastLoginAt];
+      return repository.create({
+        id: makeUserId(index),
+        email,
+        role: index <= 25 ? "admin" : "user",
+        firstName,
+        lastName,
+        phone: `+1555${String(index).padStart(7, "0")}`,
+        status: "active",
+        lastLoginAt: new Date(Date.now() - (index % 365) * 86_400_000)
+      });
     });
 
-    const valuesSql = rows
-      .map((_, rowIndex) => {
-        const offset = rowIndex * 7;
-        return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7})`;
-      })
-      .join(", ");
-
-    const result = await client.query<SeedUser>(
-      `INSERT INTO users (email, role, first_name, last_name, phone, status, last_login_at)
-       VALUES ${valuesSql}
-       RETURNING id, email, first_name AS "firstName", last_name AS "lastName"`,
-      rows.flat()
+    const inserted = await repository.save(batch, { chunk: USER_BATCH_SIZE });
+    users.push(
+      ...inserted.map((user) => ({
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName ?? "",
+        lastName: user.lastName ?? ""
+      }))
     );
-
-    users.push(...result.rows);
   }
 
   return users;
 }
 
-async function seedOrders(client: PoolClient, users: SeedUser[]): Promise<void> {
+async function seedOrders(manager: EntityManager, users: SeedUser[]): Promise<void> {
+  const orderRepository = manager.getRepository(OrderEntity);
+  const itemRepository = manager.getRepository(OrderItemEntity);
+
   for (let start = 0; start < ORDER_COUNT; start += ORDER_BATCH_SIZE) {
-    const orderRows = [];
-    const itemRows: ItemSeed[] = [];
+    const orderBatch: OrderEntity[] = [];
+    const itemBatch: OrderItemEntity[] = [];
 
     for (let offset = 0; offset < Math.min(ORDER_BATCH_SIZE, ORDER_COUNT - start); offset += 1) {
       const index = start + offset + 1;
       const user = users[(index - 1) % users.length];
       const itemCount = 1 + (index % 4);
+      const orderId = randomUUID();
       const items = Array.from({ length: itemCount }, (_value, itemOffset) => {
         const product = pick(products, index + itemOffset);
         const quantity = 1 + ((index + itemOffset) % 3);
+
         return {
           position: itemOffset + 1,
+          productId: randomUUID(),
           productSku: product.sku,
           productName: product.name,
           quantity,
@@ -113,7 +118,6 @@ async function seedOrders(client: PoolClient, users: SeedUser[]): Promise<void> 
           totalPriceCents: product.price * quantity
         };
       });
-
       const subtotal = items.reduce((sum, item) => sum + item.totalPriceCents, 0);
       const discount = index % 9 === 0 ? Math.round(subtotal * 0.1) : 0;
       const taxable = subtotal - discount;
@@ -121,140 +125,70 @@ async function seedOrders(client: PoolClient, users: SeedUser[]): Promise<void> 
       const shipping = taxable > 20_000 ? 0 : 799;
       const total = taxable + tax + shipping;
       const orderStatus = pick(orderStatuses, index);
-      const paymentStatus = orderStatus === "cancelled" ? "failed" : pick(paymentStatuses, index + 1);
-      const fulfillmentStatus = orderStatus === "cancelled" ? "cancelled" : pick(fulfillmentStatuses, index + 2);
-      const createdAt = new Date(Date.now() - index * 60_000).toISOString();
-      const cancelledAt = orderStatus === "cancelled" ? new Date(Date.now() - (index - 30) * 60_000).toISOString() : null;
+      const createdAt = new Date(Date.now() - index * 60_000);
+      const cancelledAt = orderStatus === "cancelled" ? new Date(Date.now() - (index - 30) * 60_000) : null;
       const primaryItem = items[0];
-      const orderNumber = `ORD-${String(index).padStart(8, "0")}`;
 
-      orderRows.push([
-        user.id,
-        orderNumber,
-        primaryItem.productSku,
-        primaryItem.productName,
-        total,
-        "USD",
-        orderStatus,
-        paymentStatus,
-        fulfillmentStatus,
-        `${user.firstName} ${user.lastName}`,
-        user.email,
-        subtotal,
-        discount,
-        tax,
-        shipping,
-        total,
-        JSON.stringify(makeAddress(index)),
-        JSON.stringify(makeAddress(index + 17)),
-        createdAt,
-        createdAt,
-        cancelledAt
-      ]);
+      orderBatch.push(
+        orderRepository.create({
+          id: orderId,
+          userId: user.id,
+          orderNumber: `ORD-${String(index).padStart(8, "0")}`,
+          productSku: primaryItem.productSku,
+          productName: primaryItem.productName,
+          amountCents: total,
+          currency: "USD",
+          orderStatus,
+          paymentStatus: orderStatus === "cancelled" ? "failed" : pick(paymentStatuses, index + 1),
+          fulfillmentStatus: orderStatus === "cancelled" ? "cancelled" : pick(fulfillmentStatuses, index + 2),
+          customerName: `${user.firstName} ${user.lastName}`,
+          customerEmail: user.email,
+          subtotalAmountCents: subtotal,
+          discountAmountCents: discount,
+          taxAmountCents: tax,
+          shippingAmountCents: shipping,
+          totalAmountCents: total,
+          shippingAddress: makeAddress(index),
+          billingAddress: makeAddress(index + 17),
+          placedAt: createdAt,
+          createdAt,
+          updatedAt: createdAt,
+          cancelledAt
+        })
+      );
 
       for (const item of items) {
-        itemRows.push({
-          orderNumber,
-          ...item
-        });
+        itemBatch.push(
+          itemRepository.create({
+            orderId,
+            ...item
+          })
+        );
       }
     }
 
-    const orderColumnCount = 21;
-    const orderValuesSql = orderRows
-      .map((_, rowIndex) => {
-        const valueOffset = rowIndex * orderColumnCount;
-        return `(${Array.from({ length: orderColumnCount }, (_value, colIndex) => `$${valueOffset + colIndex + 1}`).join(", ")})`;
-      })
-      .join(", ");
-
-    const insertedOrders = await client.query<{ id: string; orderNumber: string }>(
-      `INSERT INTO orders (
-        user_id,
-        order_number,
-        product_sku,
-        product_name,
-        amount_cents,
-        currency,
-        order_status,
-        payment_status,
-        fulfillment_status,
-        customer_name,
-        customer_email,
-        subtotal_amount_cents,
-        discount_amount_cents,
-        tax_amount_cents,
-        shipping_amount_cents,
-        total_amount_cents,
-        shipping_address,
-        billing_address,
-        placed_at,
-        created_at,
-        cancelled_at
-      ) VALUES ${orderValuesSql}
-      RETURNING id, order_number AS "orderNumber"`,
-      orderRows.flat()
-    );
-
-    const orderIdByNumber = new Map(insertedOrders.rows.map((order) => [order.orderNumber, order.id]));
-    const resolvedItems = itemRows.map((item) => [
-      orderIdByNumber.get(item.orderNumber),
-      item.position,
-      item.productSku,
-      item.productName,
-      item.quantity,
-      item.unitPriceCents,
-      item.totalPriceCents
-    ]);
-    const itemColumnCount = 7;
-    const itemValuesSql = resolvedItems
-      .map((_, rowIndex) => {
-        const valueOffset = rowIndex * itemColumnCount;
-        return `(${Array.from({ length: itemColumnCount }, (_value, colIndex) => `$${valueOffset + colIndex + 1}`).join(", ")})`;
-      })
-      .join(", ");
-
-    await client.query(
-      `INSERT INTO order_items (
-        order_id,
-        position,
-        product_sku,
-        product_name,
-        quantity,
-        unit_price_cents,
-        total_price_cents
-      ) VALUES ${itemValuesSql}`,
-      resolvedItems.flat()
-    );
-
+    await orderRepository.save(orderBatch, { chunk: ORDER_BATCH_SIZE });
+    await itemRepository.save(itemBatch, { chunk: ORDER_BATCH_SIZE });
     console.log(`Seeded ${Math.min(start + ORDER_BATCH_SIZE, ORDER_COUNT)} / ${ORDER_COUNT} orders`);
   }
 }
 
 async function main(): Promise<void> {
-  const client = await pool.connect();
+  const dataSource = await initializeDataSource();
 
   try {
-    await client.query("BEGIN");
-    await client.query("TRUNCATE order_items, orders, users RESTART IDENTITY");
-    const users = await seedUsers(client);
-    await seedOrders(client, users);
-    await client.query("COMMIT");
+    await dataSource.transaction(async (manager) => {
+      await manager.query("TRUNCATE order_items, orders, users RESTART IDENTITY");
+      const users = await seedUsers(manager);
+      await seedOrders(manager, users);
+    });
     console.log(`Seed complete: ${USER_COUNT} users, ${ORDER_COUNT} orders`);
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
   } finally {
-    client.release();
+    await dataSource.destroy();
   }
 }
 
-main()
-  .then(async () => {
-    await pool.end();
-  })
-  .catch(async (error: unknown) => {
-    console.error(error);
-    await pool.end();
-    process.exit(1);
-  });
+main().catch((error: unknown) => {
+  console.error(error);
+  process.exit(1);
+});

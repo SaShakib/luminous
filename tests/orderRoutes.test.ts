@@ -59,6 +59,14 @@ function makeRepository(rows: OrderHistoryEntry[] = [makeOrder()]): OrderReposit
 }
 
 describe("GET /api/users/:userId/orders", () => {
+  it("returns a global 404 for unknown routes", async () => {
+    const app = createApp({ orderRepository: makeRepository() });
+    const response = await request(app).get("/does-not-exist");
+
+    expect(response.status).toBe(404);
+    expect(response.body).toEqual({ error: { message: "Route not found" } });
+  });
+
   it("requires authentication", async () => {
     const app = createApp({ orderRepository: makeRepository() });
     const response = await request(app).get(`/api/users/${userId}/orders`);

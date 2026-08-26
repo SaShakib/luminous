@@ -22,7 +22,9 @@
     "helmet": "^8.1.0",
     "joi": "^18.0.0",
     "pg": "^8.16.3",
-    "swagger-ui-express": "^5.0.1"
+    "reflect-metadata": "^0.2.2",
+    "swagger-ui-express": "^5.0.1",
+    "typeorm": "^0.3.31"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",
