@@ -1,0 +1,24 @@
+import { env } from "./config/env";
+import { pool } from "./db/pool";
+import { createApp } from "./app";
+
+const app = createApp();
+
+const server = app.listen(env.port, () => {
+  console.log(`API listening on port ${env.port}`);
+});
+
+async function shutdown(): Promise<void> {
+  server.close(async () => {
+    await pool.end();
+    process.exit(0);
+  });
+}
+
+process.on("SIGINT", () => {
+  void shutdown();
+});
+
+process.on("SIGTERM", () => {
+  void shutdown();
+});
