@@ -37,6 +37,7 @@ The Aiven CA certificate is included as `ca.pem` for this demo.
 ## Database Setup
 
 Run the migration script:
+The migrations is already Done 
 
 ```bash
 npm run db:migrate

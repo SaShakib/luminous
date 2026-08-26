@@ -43,7 +43,7 @@ The class/interface split is intentional:
 
 ## 2. What I used AI for, and what I changed
 
-I used AI as a coding assistant for the first scaffold: Express setup, TypeScript config, Joi validation, Jest setup, and a first draft of the decisions file. I then changed several parts after reviewing the requirements more carefully.
+I used AI as a coding assistant for the implementation of my ideas, and fixes I asked the AI, Express setup, TypeScript config, Joi validation, Jest setup, and a first draft of the decisions file. I then changed several parts after reviewing the requirements more carefully.
 
 - The first scaffold had a placeholder controller. I replaced it with a controller/service/repository split so HTTP concerns, business rules, and database access are not mixed together.
 - I changed the structure to class-based controller/service/repository objects with constructor injection. That made dependencies explicit and made the route tests independent from Postgres.
@@ -78,8 +78,6 @@ The tradeoff is write cost. Every extra order index makes order creation and sta
 
 Another pagination failure is cursor misuse. Cursor pagination is fast only when the cursor belongs to the same ordered result set. If a client changes `search`, `paymentStatus`, `productSku`, or date filters but keeps an old cursor, the API can skip valid rows or return confusing next pages. I detect that by signing the active filters into the cursor and rejecting mismatched cursors. The correct client behavior is to start a new pagination chain whenever filters/search/sort changes.
 
-I would detect that with latency percentiles and query timing. `p50` is the median request. `p95` means 95% of requests are faster than that number, so it shows what slower users are experiencing. `p99` is the slowest 1% and is often where production pain appears first. For this endpoint I care more about rising `p95` and `p99` than the average.
-
 I would also log query duration, result count, requested limit, cursor presence, filter usage, and search usage. On the database side I would watch slow queries, CPU, active connections, pool wait time, and table/index growth.
 
 If indexes are correct but the database eventually becomes too large for one Postgres instance, the failure changes from "bad query" to operational limits: indexes stop fitting in memory, writes slow down reads, autovacuum can fall behind, storage grows too quickly, and backup/restore time becomes unacceptable.
@@ -94,11 +92,11 @@ The sharding failure to avoid is a cross-shard order-history query. If one user'
 
 ## 4. What I deliberately did not build
 
-- I did not build production authentication. Header-based identity keeps the take-home runnable, but real auth should verify a token/session.
+- I did not build production authentication, user schema, Header-based identity keeps the take-home runnable, but real auth should verify a token/session.
+- Didnt used UUid or database generated ID so that demo test stay simple. 
 - I did not build admin audit logging. In production, admin reads of another user's order history should probably be recorded.
 - I did not add every possible filter. For example, I left out min/max total, currency, country, and item quantity filters because they were not required and each one adds API and indexing choices.
 - I did not add arbitrary sorting. The endpoint supports created time and total amount only.
 - I did not add a dedicated search service. Postgres full-text search is enough for this scope; OpenSearch/Elasticsearch would be a later decision if search becomes central.
 - I did not add caching. Order history is user-specific and changes with payments, refunds, and fulfillment updates. I would first make the database query fast and observable.
 - I did not add sharding. The schema and repository boundary keep that path open, but sharding would be unnecessary complexity for 50,000 orders.
-- I did not add TypeORM's full migration-file workflow. The take-home uses one idempotent migration script that syncs entities and applies indexes. A production service should track applied migration versions.
