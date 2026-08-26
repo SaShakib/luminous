@@ -60,6 +60,7 @@ export interface OrderHistoryEntry {
 export interface CursorPayload {
   sortBy: OrderSortBy;
   sortDirection: SortDirection;
+  filtersSignature: string;
   sortValue: string | number;
   id: string;
 }

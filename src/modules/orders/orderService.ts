@@ -13,7 +13,9 @@ export class OrderService {
       throw new HttpError(404, "User not found");
     }
 
-    const decodedCursor = input.cursor ? decodeCursor(input.cursor, input.sortBy, input.sortDirection) : undefined;
+    const decodedCursor = input.cursor
+      ? decodeCursor(input.cursor, input.sortBy, input.sortDirection, input.filters)
+      : undefined;
     const rows = await this.orderRepository.findUserOrders({
       userId: input.userId,
       limit: input.limit + 1,
@@ -31,7 +33,7 @@ export class OrderService {
       page: {
         limit: input.limit,
         hasMore,
-        nextCursor: hasMore && lastOrder ? cursorFromOrder(lastOrder, input.sortBy, input.sortDirection) : null,
+        nextCursor: hasMore && lastOrder ? cursorFromOrder(lastOrder, input.sortBy, input.sortDirection, input.filters) : null,
         sortBy: input.sortBy,
         sortDirection: input.sortDirection
       }

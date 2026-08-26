@@ -1,11 +1,11 @@
-import { Check, Column, CreateDateColumn, Entity, Index, OneToMany, PrimaryGeneratedColumn } from "typeorm";
+import { Check, Column, CreateDateColumn, Entity, Index, OneToMany, PrimaryColumn } from "typeorm";
 import { OrderEntity } from "./OrderEntity";
 
 @Entity({ name: "users" })
 @Check("chk_users_role", "role IN ('user', 'admin')")
 @Check("chk_users_status", "status IN ('active', 'disabled', 'pending')")
 export class UserEntity {
-  @PrimaryGeneratedColumn("uuid")
+  @PrimaryColumn("uuid")
   id!: string;
 
   @Index({ unique: true })

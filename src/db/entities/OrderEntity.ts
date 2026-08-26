@@ -6,7 +6,7 @@ import {
   JoinColumn,
   ManyToOne,
   OneToMany,
-  PrimaryGeneratedColumn,
+  PrimaryColumn,
   UpdateDateColumn
 } from "typeorm";
 import { OrderItemEntity } from "./OrderItemEntity";
@@ -26,7 +26,7 @@ import { UserEntity } from "./UserEntity";
   "fulfillment_status IN ('not_started', 'processing', 'shipped', 'delivered', 'cancelled')"
 )
 export class OrderEntity {
-  @PrimaryGeneratedColumn("uuid")
+  @PrimaryColumn("uuid")
   id!: string;
 
   @Column({ name: "user_id", type: "uuid" })

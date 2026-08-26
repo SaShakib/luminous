@@ -160,6 +160,7 @@ async function seedOrders(manager: EntityManager, users: SeedUser[]): Promise<vo
       for (const item of items) {
         itemBatch.push(
           itemRepository.create({
+            id: randomUUID(),
             orderId,
             ...item
           })

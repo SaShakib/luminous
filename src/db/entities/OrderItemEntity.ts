@@ -1,4 +1,4 @@
-import { Check, Column, CreateDateColumn, Entity, JoinColumn, ManyToOne, PrimaryGeneratedColumn, Unique } from "typeorm";
+import { Check, Column, CreateDateColumn, Entity, JoinColumn, ManyToOne, PrimaryColumn, Unique } from "typeorm";
 import { OrderEntity } from "./OrderEntity";
 
 @Entity({ name: "order_items" })
@@ -8,7 +8,7 @@ import { OrderEntity } from "./OrderEntity";
 @Check("chk_order_items_unit_price_cents", "unit_price_cents >= 0")
 @Check("chk_order_items_total_price_cents", "total_price_cents >= 0")
 export class OrderItemEntity {
-  @PrimaryGeneratedColumn("uuid")
+  @PrimaryColumn("uuid")
   id!: string;
 
   @Column({ name: "order_id", type: "uuid" })

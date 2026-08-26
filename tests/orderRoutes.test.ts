@@ -122,6 +122,26 @@ describe("GET /api/users/:userId/orders", () => {
     expect(response.body.page.nextCursor).toEqual(expect.any(String));
   });
 
+  it("rejects a cursor when filters change", async () => {
+    const rows = [
+      makeOrder({ id: "8c84e436-1bdd-4307-9804-4fb5ec169ab2" }),
+      makeOrder({ id: "b2038412-648a-42d5-aebe-4656cf5fd30c" })
+    ];
+    const app = createApp({ orderRepository: makeRepository(rows) });
+    const firstPage = await request(app)
+      .get(`/api/users/${userId}/orders?limit=1&paymentStatus=paid`)
+      .set("x-user-id", userId)
+      .set("x-user-role", "user");
+
+    const response = await request(app)
+      .get(`/api/users/${userId}/orders?limit=1&paymentStatus=failed&cursor=${firstPage.body.page.nextCursor}`)
+      .set("x-user-id", userId)
+      .set("x-user-role", "user");
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({ error: { message: "Invalid cursor" } });
+  });
+
   it("passes filters and search to the repository", async () => {
     const repository = makeRepository();
     const app = createApp({ orderRepository: repository });

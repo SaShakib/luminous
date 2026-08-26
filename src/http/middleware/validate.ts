@@ -9,6 +9,8 @@ interface ValidationSchemas {
   body?: Joi.ObjectSchema;
 }
 
+type RequestLocation = "params" | "query" | "body";
+
 declare global {
   namespace Express {
     interface Request {
@@ -21,29 +23,39 @@ declare global {
   }
 }
 
+function runValidation(schema: Joi.ObjectSchema, value: unknown): Record<string, unknown> {
+  const result = schema.validate(value, {
+    abortEarly: false,
+    convert: true,
+    stripUnknown: true
+  });
+
+  if (result.error) {
+    const message = result.error.details.map((detail: ValidationErrorItem) => detail.message).join("; ");
+    throw new HttpError(400, message);
+  }
+
+  return result.value as Record<string, unknown>;
+}
+
+function validateLocation(request: Request, location: RequestLocation, schema?: Joi.ObjectSchema): void {
+  if (!schema) {
+    return;
+  }
+
+  request.validated = request.validated ?? {};
+  request.validated[location] = runValidation(schema, request[location]);
+}
+
 export function validate(schemas: ValidationSchemas) {
   return (request: Request, _response: Response, next: NextFunction): void => {
-    request.validated = request.validated ?? {};
-
-    for (const [location, schema] of Object.entries(schemas)) {
-      if (!schema) {
-        continue;
-      }
-
-      const { value, error } = schema.validate(request[location as keyof ValidationSchemas], {
-        abortEarly: false,
-        convert: true,
-        stripUnknown: true
-      });
-
-      if (error) {
-        next(new HttpError(400, error.details.map((detail: ValidationErrorItem) => detail.message).join("; ")));
-        return;
-      }
-
-      request.validated[location as "params" | "query" | "body"] = value as Record<string, unknown>;
+    try {
+      validateLocation(request, "params", schemas.params);
+      validateLocation(request, "query", schemas.query);
+      validateLocation(request, "body", schemas.body);
+      next();
+    } catch (error) {
+      next(error);
     }
-
-    next();
   };
 }

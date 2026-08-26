@@ -1,4 +1,5 @@
 import type { NextFunction, Request, Response } from "express";
+import Joi from "joi";
 import { HttpError } from "../errors";
 
 export type UserRole = "user" | "admin";
@@ -16,20 +17,25 @@ declare global {
   }
 }
 
-const roles = new Set<UserRole>(["user", "admin"]);
+const authHeadersSchema = Joi.object({
+  "x-user-id": Joi.string().uuid({ version: "uuidv4" }).required(),
+  "x-user-role": Joi.string().valid("user", "admin").required()
+}).unknown(true);
 
 export function authenticate(request: Request, _response: Response, next: NextFunction): void {
-  const userId = request.header("x-user-id");
-  const role = request.header("x-user-role");
+  const { value, error } = authHeadersSchema.validate(request.headers, {
+    abortEarly: false,
+    convert: true
+  });
 
-  if (!userId || !role || !roles.has(role as UserRole)) {
+  if (error) {
     next(new HttpError(401, "Authentication required"));
     return;
   }
 
   request.user = {
-    id: userId,
-    role: role as UserRole
+    id: value["x-user-id"],
+    role: value["x-user-role"] as UserRole
   };
 
   next();

@@ -10,6 +10,7 @@ The ticket only says to return a user's orders, newest first, keep it responsive
 - I assumed an unknown user should receive `404`. This is the assumption I am least confident about, because some teams prefer returning an empty list to avoid leaking whether a user id exists.
 - I assumed "newest first" means `created_at DESC`, with `id DESC` as a tie breaker. The tie breaker matters because two orders can have the same timestamp.
 - I assumed the endpoint should never return a user's full order history in one response. If a user has 10,000 orders, returning all 10,000 rows would make the database query, Node memory usage, and HTTP response size unpredictable. I used a bounded `limit` plus cursor pagination instead.
+- I assumed a cursor is only valid for the exact query shape that created it. If the client changes filters, search, date range, or sorting, they should start again without the old cursor.
 - I assumed filters are useful for real order history, so the endpoint supports order status, payment status, fulfillment status, product SKU, created date range, and text search.
 - I assumed search should not be regex-based. Regex and `ILIKE '%term%'` are easy to write but become expensive as data grows. I used Postgres full-text search through `tsvector` and GIN indexes as a better default.
 - I assumed sorting should be deliberately limited. The endpoint supports newest/oldest and total amount sorting. I did not add arbitrary sort fields because each extra sort can require a new index or a different query plan.
@@ -17,20 +18,19 @@ The ticket only says to return a user's orders, newest first, keep it responsive
 - I assumed normal order reads do not need to block order creation or payment updates. Postgres can serve a committed snapshot while writes are happening.
 - I assumed the order response should include line items, status fields, money fields, and address snapshots. Real order history is not just one product name on an order row.
 - I assumed TypeORM is a good fit for this project because it makes the schema, seed data, and repository structure easier to follow. I still used QueryBuilder for the order-history read because cursor pagination, filters, and full-text search need control over the query shape.
-- I assumed every index needs to support a known access pattern. Extra indexes are not free: they consume storage and slow down writes, so I added only the ones tied to the filters/sorts this endpoint exposes.
+- I assumed every index needs to support a known access pattern. Extra indexes are not free: they consume storage and slow down writes, so I kept only the indexes I can defend for the current endpoint.
+- I initially had `pgcrypto` in the migration because the first SQL version used database-generated UUIDs. After moving seed/entity ids to application-generated UUIDs, that extension was no longer needed, so I removed it.
 - I assumed a small amount of structure is worth it here: controller, service, repository, and interfaces. This endpoint has auth, validation, pagination rules, database filtering, search, and response shaping. Keeping those responsibilities separate makes the code easier to review and easier to change.
 
 The indexes I added are:
 
 - `idx_orders_user_created_id`: main path for one user's orders, newest first, with cursor pagination.
 - `idx_orders_user_status_created_id`: order status filtering while keeping newest-first ordering.
-- `idx_orders_user_payment_created_id`: payment status filtering.
-- `idx_orders_user_fulfillment_created_id`: fulfillment/delivery status filtering.
-- `idx_orders_user_total_id`: sorting one user's orders by total amount.
 - `idx_orders_search_document`: full-text search on order number and order-level product snapshot fields.
 - `idx_order_items_order_position`: loading line items for the orders on the current page in a stable order.
-- `idx_order_items_product_sku`: filtering orders that contain a product SKU.
 - `idx_order_items_search_document`: full-text search on item SKU/name.
+
+I deliberately did not add separate indexes for every filter (`payment_status`, `fulfillment_status`, product SKU, total amount sorting). Those filters still work. I would add dedicated indexes later if query logs show those paths are common or slow. This is a better tradeoff than over-indexing a write-heavy orders table up front.
 
 The class/interface split is intentional:
 
@@ -50,8 +50,10 @@ I used AI as a coding assistant for the first scaffold: Express setup, TypeScrip
 - The first schema represented an order as one product on one row. I changed that to keep order-level snapshots on `orders` and product rows in `order_items`.
 - The first seed was too simple. I changed it to create more realistic users, customer snapshots, addresses, totals, discounts, taxes, shipping, and multiple items per order. Orders are spread across all 5,000 users.
 - The first version only documented filters/search. I implemented filters for status, payment, fulfillment, product SKU, date range, and search.
-- The first version used only the obvious `(user_id, created_at, id)` index. I kept that index, then added indexes for common filters, total sorting, item lookup, and full-text search.
+- The first version later became over-indexed. I trimmed it back to the indexes I can defend now: main user-history pagination, order status, order/item search, and loading order items. I removed the premature payment/fulfillment/total/product-SKU indexes.
+- The first migration included `pgcrypto`. I removed it after changing ids to be generated by Node/TypeORM seed code instead of depending on Postgres crypto functions.
 - I did not let AI add offset pagination. Cursor pagination is a better fit because this endpoint needs to stay stable and responsive as a user's history grows.
+- I found and fixed a cursor bug after review: the cursor originally checked only `sortBy` and `sortDirection`. That meant a client could reuse a cursor from `paymentStatus=paid` while requesting `paymentStatus=failed`, which would paginate from the wrong position. I changed the cursor to include a signature of the active filters/search/date range and reject mismatches with `400 Invalid cursor`.
 - I also made the AI-generated assumptions less absolute. For example, `404` for an unknown user is documented as a real assumption, not a universal truth.
 - I changed the first raw `pg` implementation to TypeORM. The migration script now syncs TypeORM entities, the seed uses TypeORM repositories inside a transaction, and the endpoint uses a TypeORM repository with QueryBuilder.
 - I did not hide all Postgres-specific details behind TypeORM. Full-text search still uses `tsvector`, GIN indexes, and `websearch_to_tsquery`, because those are database features and should be visible in a performance-sensitive endpoint.
@@ -70,9 +72,11 @@ ON orders (user_id, created_at DESC, id DESC);
 
 Without that shape, "give me this user's newest orders" can become a scan and sort over far more rows than needed. The visible symptom would be rising endpoint latency, then connection pool pressure as requests wait for slow database work to finish.
 
-The other indexes support the optional query shapes. Status/payment/fulfillment filters each get a user-first composite index so Postgres can still start from one user's orders. The total sort gets its own user-first index because `ORDER BY total_amount_cents` cannot reuse the created-at ordering. Search uses GIN indexes because full-text search needs a different index type than equality/range filters.
+The other kept indexes support query paths that are already part of the endpoint. `order_status` gets a user-first composite index because it is a common order-history filter. Search uses GIN indexes because full-text search needs a different index type than equality/range filters. `order_items(order_id, position)` supports loading only the current page's items in display order.
 
-The tradeoff is write cost. Every order insert/update now has more index maintenance to do. At 100x, if this system becomes write-heavy, the first index-related failure could be slower order creation or payment updates because Postgres has to update several indexes per row. I would watch write latency, index size, cache hit rate, and autovacuum activity. If a filter is rarely used, I would rather remove its index than keep an expensive index "just in case."
+The tradeoff is write cost. Every extra order index makes order creation and status/payment updates more expensive. At 100x, if this system becomes write-heavy, the first index-related failure could be slower order creation or payment updates because Postgres has to update too many indexes per row. I would watch write latency, index size, cache hit rate, and autovacuum activity. If a filter becomes common and slow, I would add its index based on evidence rather than guessing up front.
+
+Another pagination failure is cursor misuse. Cursor pagination is fast only when the cursor belongs to the same ordered result set. If a client changes `search`, `paymentStatus`, `productSku`, or date filters but keeps an old cursor, the API can skip valid rows or return confusing next pages. I detect that by signing the active filters into the cursor and rejecting mismatched cursors. The correct client behavior is to start a new pagination chain whenever filters/search/sort changes.
 
 I would detect that with latency percentiles and query timing. `p50` is the median request. `p95` means 95% of requests are faster than that number, so it shows what slower users are experiencing. `p99` is the slowest 1% and is often where production pain appears first. For this endpoint I care more about rising `p95` and `p99` than the average.
 
